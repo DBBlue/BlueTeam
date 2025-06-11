@@ -1,17 +1,17 @@
 # BlueTeam
 BlueTeam scripts
 
-## ExploitProtectionTestingFramework
+## ExploitProtectionTestingFramework.ps1
   ## Script applies and tests (by launching the application) all discovered exploit protection settings.  Any log generation - script will roll back the setting and display the log 
 Change the config for the application you are testing.  Create a test folder, script uses "C:\Automated_App_Testing".  Does not work with suite based applications (Adobe - pending testing)
 Script outputs to test file folder - json for validation
 
   ## Set up
   Update Configuration with the application being tested, sample configurations located at the bottom of the script
+          
           #------------------------------------------------------------------------------------
           # --- CONFIGURATION BLOCK - PASTE THE DESIRED APP CONFIGURATION HERE ---
           #------------------------------------------------------------------------------------
-          
           # This section will be replaced by one of the application-specific blocks from the guide.
           $friendlyAppName = "Microsoft Word"
           $appName         = "WINWORD.EXE"
