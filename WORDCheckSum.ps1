@@ -1,24 +1,22 @@
 ﻿#Requires -RunAsAdministrator
-# Definitive Single-App Verification Script v4.1 - Final with Ignore List
+# Definitive Single-App Verification Script v4.2 - Cleaner Logic
 
 #------------------------------------------------------------------------------------
 # --- CONFIGURATION BLOCK ---
 #------------------------------------------------------------------------------------
-
 # Define the application you are verifying. This must match the one from the test script.
 $friendlyAppName = "Microsoft Word"
 $appName         = "WINWORD.EXE"
 
-# --- NEW: IGNORE LIST ---
+# --- IGNORE LIST ---
 # Mitigations to ignore during verification due to known system-specific override or revert behaviors.
-# The script will automatically filter these out from both the expected and actual results before comparing.
 $ignoredMitigations = @(
     'StrictHandle', 
     'Sehop'
 )
 
 #------------------------------------------------------------------------------------
-# --- SCRIPT ENGINE (No more manual pasting needed) ---
+# --- SCRIPT ENGINE (Reads results automatically from file) ---
 #------------------------------------------------------------------------------------
 
 #region Verification Engine
@@ -29,7 +27,8 @@ function Get-CurrentlyEnabledMitigations {
         [Parameter(Mandatory=$true)]
         [string]$TargetAppName
     )
-    Set-ProcessMitigation -Name $TargetAppName -Enable DEP -ErrorAction SilentlyContinue | Out-Null
+    # The pre-emptive "Set" command has been removed as it is not needed in a verification context.
+    # We expect the application to already be configured by the main test script.
     $mitigationObject = Get-ProcessMitigation -Name $TargetAppName -ErrorAction Stop
     if (-not $mitigationObject) { throw "Could not retrieve the mitigation object for '$TargetAppName'." }
 
@@ -66,7 +65,7 @@ if (-not (Test-Path $resultsFile)) {
 }
 $expectedEnabledMitigations = Get-Content -Path $resultsFile | ConvertFrom-Json
 
-# --- NEW: Filter the expected list based on the ignore list ---
+# Filter the expected list based on the ignore list
 $originalExpectedCount = $expectedEnabledMitigations.Count
 $expectedEnabledMitigations = $expectedEnabledMitigations | Where-Object { $_ -notin $ignoredMitigations }
 $filteredExpectedCount = $expectedEnabledMitigations.Count
@@ -80,13 +79,12 @@ if ($originalExpectedCount -ne $filteredExpectedCount) {
 $expectedCount = $filteredExpectedCount
 Write-Host "Expecting to find $expectedCount enabled (and verifiable) mitigations for '$appName'."
 Write-Host "`n" + ("-"*60)
-
 try {
-    $rawActuallyEnabledList = Get-CurrentlyEnabledMitigations -TargetAppName $appName
-    if ($null -eq $rawActuallyEnabledList) { $rawActuallyEnabledList = @() }
+    $actuallyEnabledList = Get-CurrentlyEnabledMitigations -TargetAppName $appName
+    if ($null -eq $actuallyEnabledList) { $actuallyEnabledList = @() }
     
-    # --- NEW: Filter the actual list based on the ignore list ---
-    $actuallyEnabledList = $rawActuallyEnabledList | Where-Object { $_ -notin $ignoredMitigations }
+    # Filter the actual list based on the ignore list
+    $actuallyEnabledList = $actuallyEnabledList | Where-Object { $_ -notin $ignoredMitigations }
     $actualCount = $actuallyEnabledList.Count
 
     Write-Host "  - Expected Enabled Count: $expectedCount"
@@ -96,7 +94,7 @@ try {
         Write-Host "  - RESULT: PASS" -ForegroundColor Green
     }
     else {
-        Write-Warning "  - RESULT: FAIL - Mismatch detected after filtering."
+        Write-Warning "  - RESULT: FAIL - Mismatch detected."
         $comparison = Compare-Object -ReferenceObject ($expectedEnabledMitigations | Sort-Object) -DifferenceObject ($actuallyEnabledList | Sort-Object)
         
         $missingFromSystem = $comparison | Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
