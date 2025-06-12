@@ -1,0 +1,140 @@
+<Sysmon schemaversion="4.90">
+  <!--
+  Sysmon Configuration
+  Version: 1.0
+  Author: Gemini
+  Description: A general-purpose Sysmon configuration for detecting common attacks and compromises.
+               This configuration is a starting point and should be tuned for your specific environment
+               to reduce noise and false positives. It incorporates best practices from various
+               community sources.
+  -->
+  <EventFiltering>
+    <!-- Event ID 1: Process Creation -->
+    <!-- Log process creation events, but exclude common, noisy processes to reduce log volume. -->
+    <RuleGroup name="" groupRelation="or">
+      <ProcessCreate onmatch="exclude">
+        <!-- Exclude common Windows processes -->
+        <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+        <Image condition="is">C:\Windows\System32\conhost.exe</Image>
+        <Image condition="is">C:\Windows\System32\dwm.exe</Image>
+        <Image condition="is">C:\Windows\System32\spoolsv.exe</Image>
+        <Image condition="is">C:\Windows\explorer.exe</Image>
+        <Image condition="is">C:\Windows\System32\LsaIso.exe</Image>
+        <!-- Exclude common application processes -->
+        <Image condition="contains">C:\Program Files\Google\Chrome\Application\chrome.exe</Image>
+        <Image condition="contains">C:\Program Files\Mozilla Firefox\firefox.exe</Image>
+        <Image condition="contains">C:\Program Files\Microsoft Office\</Image>
+        <!-- Exclude common developer tools -->
+        <Image condition="contains">C:\Program Files\Microsoft VS Code\Code.exe</Image>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- Event ID 3: Network Connection -->
+    <!-- Log network connections, but filter out common and expected traffic. -->
+    <RuleGroup name="" groupRelation="or">
+        <NetworkConnect onmatch="include">
+            <!-- Include connections made by suspicious tools -->
+            <Image condition="is">C:\Windows\System32\bitsadmin.exe</Image>
+            <Image condition="is">C:\Windows\System32\certutil.exe</Image>
+            <Image condition="is">C:\Windows\System32\powershell.exe</Image>
+            <Image condition="is">C:\Windows\System32\wscript.exe</Image>
+            <Image condition="is">C:\Windows\System32\cscript.exe</Image>
+            <Image condition="is">C:\Windows\System32\regsvr32.exe</Image>
+            <Image condition="is">C:\Windows\System32\rundll32.exe</Image>
+        </NetworkConnect>
+        <NetworkConnect onmatch="exclude">
+            <!-- Exclude common noise -->
+            <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+            <Image condition="contains">C:\Program Files\Google\Chrome\Application\chrome.exe</Image>
+        </NetworkConnect>
+    </RuleGroup>
+
+    <!-- Event ID 5: Process Terminated -->
+    <!-- This event can be noisy. Enable if you have a specific need to track process termination. -->
+    <ProcessTerminate onmatch="exclude" />
+
+    <!-- Event ID 7: Image Loaded (DLLs) -->
+    <!-- Log when modules are loaded by processes. Useful for detecting credential dumping. -->
+    <RuleGroup name="" groupRelation="or">
+        <ImageLoad onmatch="include">
+            <!-- Credential Dumping Detection -->
+            <ImageLoaded condition="contains">vaultcli.dll</ImageLoaded> <!-- Vault credentials -->
+            <ImageLoaded condition="contains">wce.dll</ImageLoaded> <!-- Windows Credential Editor -->
+            <ImageLoaded condition="contains">mimikatz</ImageLoaded> <!-- Mimikatz -->
+        </ImageLoad>
+        <ImageLoad onmatch="exclude">
+            <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+        </ImageLoad>
+    </RuleGroup>
+
+    <!-- Event ID 8: CreateRemoteThread -->
+    <!-- Detects process injection. This is a high-fidelity indicator of malicious activity. -->
+    <CreateRemoteThread onmatch="include">
+        <TargetImage condition="is">C:\Windows\System32\lsass.exe</TargetImage>
+    </CreateRemoteThread>
+
+    <!-- Event ID 10: Process Access -->
+    <!-- Log when a process opens another process. Key for detecting credential theft from LSASS. -->
+    <RuleGroup name="" groupRelation="or">
+        <ProcessAccess onmatch="include">
+            <TargetImage condition="is">C:\Windows\System32\lsass.exe</TargetImage>
+            <GrantedAccess condition="is">0x1010</GrantedAccess> <!-- PROCESS_VM_READ and PROCESS_QUERY_INFORMATION -->
+            <GrantedAccess condition="is">0x1410</GrantedAccess> <!-- Same as above + PROCESS_DUP_HANDLE -->
+            <GrantedAccess condition="is">0x1F0FFF</GrantedAccess> <!-- All Access -->
+            <GrantedAccess condition="is">0x143A</GrantedAccess>
+            <GrantedAccess condition="is">0x1038</GrantedAccess>
+        </ProcessAccess>
+        <ProcessAccess onmatch="exclude">
+            <SourceImage condition="is">C:\Windows\System32\svchost.exe</SourceImage>
+            <SourceImage condition="is">C:\Windows\System32\wininit.exe</SourceImage>
+        </ProcessAccess>
+    </RuleGroup>
+
+    <!-- Event ID 11: FileCreate -->
+    <!-- Monitor for creation of suspicious files in sensitive locations. -->
+    <RuleGroup name="" groupRelation="or">
+        <FileCreate onmatch="include">
+            <TargetFilename condition="contains">C:\Users\Public\</TargetFilename>
+            <TargetFilename condition="contains">C:\PerfLogs\</TargetFilename>
+            <TargetFilename condition="contains">C:\Windows\Tasks\</TargetFilename>
+            <TargetFilename condition="endswith">.ps1</TargetFilename>
+            <TargetFilename condition="endswith">.bat</TargetFilename>
+            <TargetFilename condition="endswith">.vbs</TargetFilename>
+        </FileCreate>
+    </RuleGroup>
+
+    <!-- Event ID 12, 13, 14: Registry Events -->
+    <!-- Monitor for changes to registry keys used for persistence. -->
+    <RuleGroup name="" groupRelation="or">
+        <RegistryEvent onmatch="include">
+            <!-- Autorun Locations -->
+            <TargetObject condition="contains">HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run</TargetObject>
+            <TargetObject condition="contains">HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Run</TargetObject>
+            <TargetObject condition="contains">HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run</TargetObject>
+            <!-- Logon Scripts -->
+            <TargetObject condition="contains">HKCU\Environment\UserInitMprLogonScript</TargetObject>
+            <!-- Disabling Security Tools -->
+            <TargetObject condition="contains">HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\DisableAntiSpyware</TargetObject>
+        </RegistryEvent>
+    </RuleGroup>
+
+    <!-- Event ID 19, 20, 21: WMI Events -->
+    <!-- Monitor for WMI-based persistence and lateral movement. -->
+    <RuleGroup name="" groupRelation="or">
+        <WmiEvent onmatch="include">
+            <EventType condition="is">WmiFilterToConsumerBinding</EventType>
+            <EventType condition="is">WmiConsumer</EventType>
+            <EventType condition="is">WmiFilter</EventType>
+        </WmiEvent>
+    </RuleGroup>
+
+    <!-- Event ID 22: DNSEvent -->
+    <!-- Log DNS queries to identify C2 communications. Can be very high volume. -->
+    <DnsQuery onmatch="exclude">
+        <QueryName condition="contains">.microsoft.com</QueryName>
+        <QueryName condition="contains">.google.com</QueryName>
+        <QueryName condition="contains">.windowsupdate.com</QueryName>
+    </DnsQuery>
+
+  </EventFiltering>
+</Sysmon>
