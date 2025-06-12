@@ -1,0 +1,170 @@
+<#
+.SYNOPSIS
+    Applies comprehensive security auditing and logging settings to a Windows system.
+
+.DESCRIPTION
+    This script configures Windows logging and audit policies to align with best practices from STIG (Security Technical Implementation Guides) 
+    and CIS (Center for Internet Security) benchmarks. It is designed to significantly increase visibility into system activities to aid in 
+    threat detection and incident response.
+
+    Key actions performed:
+    - Checks for Administrator privileges before execution.
+    - Forces Advanced Audit Policies to override legacy settings.
+    - Configures detailed Advanced Audit Policies for critical security events.
+    - Enables comprehensive PowerShell Module and Script Block logging.
+    - Enables command-line auditing for all process creation events.
+    - Increases the maximum size of key event logs (Security, Application, System, PowerShell) to improve log retention.
+
+.WARNING
+    This script makes significant changes to the system's audit policy and log sizes. 
+    It will generate a substantial amount of log data. Ensure you have a log management or SIEM solution in place to handle the volume.
+    ALWAYS test this script in a non-production environment before deploying to production systems.
+
+.NOTES
+    Version: 1.2
+    Author: Gemini
+    Requires: PowerShell 5.1 or later, running as an Administrator.
+#>
+
+#================================================================================
+# PRE-FLIGHT CHECKS
+#================================================================================
+
+# Check for Administrator privileges
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Warning "This script must be run as an Administrator. Please re-run from an elevated PowerShell prompt."
+    exit 1
+}
+
+Write-Host "Administrator privileges confirmed. Starting security configuration." -ForegroundColor Green
+
+#================================================================================
+# CORE CONFIGURATION FUNCTIONS
+#================================================================================
+
+function Set-AdvancedAuditPolicies {
+    Write-Host "`n[+] Configuring Advanced Audit Policies..." -ForegroundColor Cyan
+
+    # Define all audit policies to be set. Format: "Category,Subcategory,InclusionSetting"
+    # Inclusion Settings: 1=Success, 2=Failure, 3=Success and Failure
+    $auditPolicies = @(
+        # Account Logon
+        "Account Logon,Credential Validation,3",
+        # Account Management
+        "Account Management,User Account Management,3",
+        "Account Management,Computer Account Management,3",
+        "Account Management,Security Group Management,3",
+        "Account Management,Distribution Group Management,3",
+        "Account Management,Application Group Management,3",
+        # Detailed Tracking
+        "Detailed Tracking,Process Creation,1",
+        "Detailed Tracking,Process Termination,1",
+        # Logon/Logoff
+        "Logon/Logoff,Logon,3",
+        "Logon/Logoff,Logoff,1",
+        "Logon/Logoff,Account Lockout,1",
+        "Logon/Logoff,Special Logon,1",
+        # Object Access
+        "Object Access,Removable Storage,3",
+        "Object Access,Detailed File Share,2", # Failure only to reduce noise
+        "Object Access,File Share,3",
+        # Policy Change
+        "Policy Change,Audit Policy Change,3",
+        "Policy Change,Authentication Policy Change,3",
+        # Privilege Use
+        "Privilege Use,Sensitive Privilege Use,3",
+        "Privilege Use,Non Sensitive Privilege Use,2", # Failure only to reduce noise
+        # System
+        "System,Security System Extension,3",
+        "System,System Integrity,3",
+        "System,IPsec Driver,3"
+    )
+
+    foreach ($policy in $auditPolicies) {
+        $category, $subcategory, $setting = $policy.Split(',')
+        Write-Host "    - Setting $($subcategory) to $($setting)..."
+        auditpol.exe /set /category:"$category" /subcategory:"$subcategory" /success:$(if($setting -eq 1 -or $setting -eq 3){"enable"}else{"disable"}) /failure:$(if($setting -eq 2 -or $setting -eq 3){"enable"}else{"disable"})
+    }
+}
+
+function Enable-EnhancedLogging {
+    Write-Host "`n[+] Enabling Enhanced PowerShell and Command-Line Logging..." -ForegroundColor Cyan
+
+    # Ensure Advanced Audit Policies are not overridden by legacy policies
+    # This is a critical setting for ensuring the policies above are applied.
+    Write-Host "    - Forcing Advanced Audit Policy override..."
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "SCENoApplyLegacyAuditPolicy" -Value 1 -Type DWORD -Force
+
+    # Enable Command Line Process Creation Auditing (Event ID 4688)
+    Write-Host "    - Enabling Command Line Process Auditing..."
+    $keyPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit"
+    if (-not (Test-Path $keyPath)) { New-Item -Path $keyPath -Force | Out-Null }
+    Set-ItemProperty -Path $keyPath -Name "ProcessCreationIncludeCmdLine_Enabled" -Value 1 -Type DWORD -Force
+
+    # Enable PowerShell Module Logging
+    Write-Host "    - Enabling PowerShell Module Logging..."
+    $keyPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging"
+    if (-not (Test-Path $keyPath)) { New-Item -Path $keyPath -Force | Out-Null }
+    Set-ItemProperty -Path $keyPath -Name "EnableModuleLogging" -Value 1 -Type DWORD -Force
+    $keyPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging\ModuleNames"
+    if (-not (Test-Path $keyPath)) { New-Item -Path $keyPath -Force | Out-Null }
+    Set-ItemProperty -Path $keyPath -Name "*" -Value "*" -Type String -Force
+
+    # Enable PowerShell Script Block Logging (Event ID 4104)
+    Write-Host "    - Enabling PowerShell Script Block Logging..."
+    $keyPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging"
+    if (-not (Test-Path $keyPath)) { New-Item -Path $keyPath -Force | Out-Null }
+    Set-ItemProperty -Path $keyPath -Name "EnableScriptBlockLogging" -Value 1 -Type DWORD -Force
+}
+
+function Configure-LogSizes {
+    Write-Host "`n[+] Configuring Event Log Sizes for extended retention..." -ForegroundColor Cyan
+
+    # Security Log (1 GB) - This is often the most critical log.
+    $logName = "Security"
+    $logSizeMB = 1024 # 1 GB
+    Write-Host "    - Setting '$($logName)' log max size to $($logSizeMB) MB."
+    wevtutil.exe sl "$logName" "/ms:$($logSizeMB * 1024 * 1024)"
+
+    # Application Log (256 MB)
+    $logName = "Application"
+    $logSizeMB = 256
+    Write-Host "    - Setting '$($logName)' log max size to $($logSizeMB) MB."
+    wevtutil.exe sl "$logName" "/ms:$($logSizeMB * 1024 * 1024)"
+
+    # System Log (256 MB)
+    $logName = "System"
+    $logSizeMB = 256
+    Write-Host "    - Setting '$($logName)' log max size to $($logSizeMB) MB."
+    wevtutil.exe sl "$logName" "/ms:$($logSizeMB * 1024 * 1024)"
+
+    # PowerShell Operational Log (256 MB) - Can fill up quickly with enhanced logging.
+    $logName = "Microsoft-Windows-PowerShell/Operational"
+    $logSizeMB = 256
+    Write-Host "    - Setting '$($logName)' log max size to $($logSizeMB) MB."
+    # The command requires a check to see if the log is enabled first
+    $psLog = Get-WinEvent -ListLog $logName -ErrorAction SilentlyContinue
+    if ($psLog.IsEnabled) {
+        wevtutil.exe sl "$logName" "/ms:$($logSizeMB * 1024 * 1024)"
+    } else {
+        Write-Warning "    - PowerShell operational log is not enabled. Skipping resize."
+    }
+}
+
+#================================================================================
+# EXECUTION
+#================================================================================
+
+try {
+    Set-AdvancedAuditPolicies
+    Enable-EnhancedLogging
+    Configure-LogSizes
+
+    Write-Host "`n[SUCCESS] Security logging and audit policies have been applied." -ForegroundColor Green
+    Write-Host "A system reboot is recommended to ensure all settings take effect." -ForegroundColor Yellow
+}
+catch {
+    Write-Error "An error occurred during script execution: $_"
+    exit 1
+}
+
