@@ -15,8 +15,8 @@ The best resource is the official MITRE ATT&CK mapping in the Atomic Red Team Gi
 Primary Resource: Visit the Atomic Red Team TTP Index on GitHub.
 Browse by Tactic: This page lists all techniques organized by tactic (e.g., Privilege Escalation, Remote Code Execution).
 Select a Technique: Click on a technique link (e.g., T1053.005 - Scheduled Task/Job: Scheduled Task). This will take you to a page listing all the available "atomic tests" for that technique. Each test has a specific purpose and command.
-Alternatively, once the AtomicRedTeam module is installed, you can list all available tests directly in PowerShell:
--- This command lists every available atomic test --
+Alternatively, once the AtomicRedTeam module is installed, you can list all available tests directly in PowerShell:</br>
+-- This command lists every available atomic test --</br>
 Get-AtomicTest
 
 
@@ -25,13 +25,13 @@ Open the Script: Open the purple_team_script_ps.ps1 file in a text editor or the
 Locate the Array: Near the top of the script, you will find the $TTPsToTest array.
 Add or Remove TTPs: To add a test, simply add its TTP number (e.g., "T1553.004") to the list. To remove one, delete its line.
 Example:
-# Original Array
+Original Array
 $TTPsToTest = @(
     "T1003.001", 
     "T1543.003"
 )
 
-# To add a test for BitsJobs, you would change it to:
+To add a test for BitsJobs, you would change it to:
 $TTPsToTest = @(
     "T1003.001", 
     "T1543.003",
